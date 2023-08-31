@@ -9,7 +9,7 @@
  * - The idea is to keep stats per (enum) xdp_action
  */
 struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__type(key, __u32);
 	__type(value, struct datarec);
 	__uint(max_entries, XDP_ACTION_MAX);
@@ -22,12 +22,13 @@ struct {
 #define lock_xadd(ptr, val)	((void) __sync_fetch_and_add(ptr, val))
 #endif
 
-
+static __always_inline
 int  xdp_stats_func(struct xdp_md *ctx, __u32 action)
 {
-	// void *data_end = (void *)(long)ctx->data_end;
-	// void *data     = (void *)(long)ctx->data;
+	void *data_end = (void *)(long)ctx->data_end;
+	void *data     = (void *)(long)ctx->data;
 	struct datarec *rec;
+
 	__u32 key = action; /* XDP_PASS = 2 */
 
 	/* Lookup in kernel BPF-side return pointer to actual data record */
@@ -42,7 +43,8 @@ int  xdp_stats_func(struct xdp_md *ctx, __u32 action)
 	/* Multiple CPUs can access data record. Thus, the accounting needs to
 	 * use an atomic operation.
 	 */
-	lock_xadd(&rec->rx_packets, 1);
+	// lock_xadd(&rec->rx_packets, 1); // with BPF_MAP_TYPE_PERCPU_ARRAY, we don't need this 
+	rec->rx_packets++;
         /* Assignment#1: Add byte counters
          * - Hint look at struct xdp_md *ctx (copied below)
          *
@@ -50,10 +52,9 @@ int  xdp_stats_func(struct xdp_md *ctx, __u32 action)
          * - Hint there is a map type named BPF_MAP_TYPE_PERCPU_ARRAY
          */
 
-	void *data_end = (void *) (long) ctx->data_end;
-	void *data     = (void *) (long) ctx->data;
 	__u64 bytes = data_end - data;
-	lock_xadd(&rec->rx_bytes, bytes);
+	// lock_xadd(&rec->rx_bytes, bytes);
+	rec->rx_bytes += bytes;
 
 	return action;
 }
