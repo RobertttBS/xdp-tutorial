@@ -22,13 +22,13 @@ struct {
 #define lock_xadd(ptr, val)	((void) __sync_fetch_and_add(ptr, val))
 #endif
 
-SEC("xdp")
-int  xdp_stats1_func(struct xdp_md *ctx)
+
+int  xdp_stats_func(struct xdp_md *ctx, __u32 action)
 {
 	// void *data_end = (void *)(long)ctx->data_end;
 	// void *data     = (void *)(long)ctx->data;
 	struct datarec *rec;
-	__u32 key = XDP_PASS; /* XDP_PASS = 2 */
+	__u32 key = action; /* XDP_PASS = 2 */
 
 	/* Lookup in kernel BPF-side return pointer to actual data record */
 	rec = bpf_map_lookup_elem(&xdp_stats_map, &key);
@@ -50,7 +50,19 @@ int  xdp_stats1_func(struct xdp_md *ctx)
          * - Hint there is a map type named BPF_MAP_TYPE_PERCPU_ARRAY
          */
 
-	return XDP_PASS;
+	void *data_end = (void *) (long) ctx->data_end;
+	void *data     = (void *) (long) ctx->data;
+	__u64 bytes = data_end - data;
+	lock_xadd(&rec->rx_bytes, bytes);
+
+	return action;
+}
+
+SEC("xdp")
+int xdp_pass_func(struct xdp_md *ctx)
+{
+	__u32 action = XDP_PASS;
+	return xdp_stats_func(ctx, action);
 }
 
 char _license[] SEC("license") = "GPL";

@@ -97,7 +97,8 @@ struct record {
 };
 
 struct stats_record {
-	struct record stats[1]; /* Assignment#2: Hint */
+	// We have 5 actions
+	struct record stats[5]; /* Assignment#2: Hint */
 };
 
 static double calc_period(struct record *r, struct record *p)
@@ -121,29 +122,29 @@ static void stats_print(struct stats_record *stats_rec,
 	double pps; /* packets per sec */
 
 	/* Assignment#2: Print other XDP actions stats  */
-	{
-		char *fmt = "%-12s %'11lld pkts (%'10.0f pps)"
+	for (__u32 i = XDP_ABORTED; i <= XDP_REDIRECT; i++) {
+		char *fmt = "%-12s %'11lld pkts %'11lld bytes (%'10.0f pps)"
 			//" %'11lld Kbytes (%'6.0f Mbits/s)"
 			" period:%f\n";
-		const char *action = action2str(XDP_PASS);
-		rec  = &stats_rec->stats[0];
-		prev = &stats_prev->stats[0];
+		const char *action = action2str(i);
+		rec  = &stats_rec->stats[i];
+		prev = &stats_prev->stats[i];
 
 		period = calc_period(rec, prev);
 		if (period == 0)
 		       return;
 
-		packets = rec->total.rx_packets - prev->total.rx_packets;
+		packets = rec->total.rx_packets - prev->total.rx_packets; // Cause every packet has information in stats_record
 		pps     = packets / period;
 
-		printf(fmt, action, rec->total.rx_packets, pps, period);
+		printf(fmt, action, rec->total.rx_packets, rec->total.rx_bytes, pps, period);
 	}
 }
 
 /* BPF_MAP_TYPE_ARRAY */
 void map_get_value_array(int fd, __u32 key, struct datarec *value)
 {
-	if ((bpf_map_lookup_elem(fd, &key, value)) != 0) {
+	if ((bpf_map_lookup_elem(fd, &key, value)) != 0) { // Just use `bpf_map_lookup_elem()` to find map element
 		fprintf(stderr,
 			"ERR: bpf_map_lookup_elem failed key:0x%X\n", key);
 	}
@@ -159,7 +160,7 @@ void map_get_value_percpu_array(int fd, __u32 key, struct datarec *value)
 	fprintf(stderr, "ERR: %s() not impl. see assignment#3", __func__);
 }
 
-static bool map_collect(int fd, __u32 map_type, __u32 key, struct record *rec)
+static bool map_collect(int fd, __u32 map_type, __u32 key, struct record *rec) // it takes record using fd & key and stores at value, then copy to rec
 {
 	struct datarec value;
 
@@ -179,8 +180,9 @@ static bool map_collect(int fd, __u32 map_type, __u32 key, struct record *rec)
 		break;
 	}
 
-	/* Assignment#1: Add byte counters */
+	/* f: Add byte counters */
 	rec->total.rx_packets = value.rx_packets;
+	rec->total.rx_bytes = value.rx_bytes;
 	return true;
 }
 
@@ -188,9 +190,9 @@ static void stats_collect(int map_fd, __u32 map_type,
 			  struct stats_record *stats_rec)
 {
 	/* Assignment#2: Collect other XDP actions stats  */
-	__u32 key = XDP_PASS;
-
-	map_collect(map_fd, map_type, key, &stats_rec->stats[0]);
+	for (__u32 i = XDP_ABORTED; i <= XDP_REDIRECT; i++) {
+		map_collect(map_fd, map_type, i, &stats_rec->stats[i]);
+	}
 }
 
 static void stats_poll(int map_fd, __u32 map_type, int interval)
@@ -212,7 +214,7 @@ static void stats_poll(int map_fd, __u32 map_type, int interval)
 
 	while (1) {
 		prev = record; /* struct copy */
-		stats_collect(map_fd, map_type, &record);
+		stats_collect(map_fd, map_type, &record); // store stats information into record
 		stats_print(&record, &prev);
 		sleep(interval);
 	}
